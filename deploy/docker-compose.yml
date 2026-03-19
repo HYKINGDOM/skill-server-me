@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  # 后端服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: skills-hub-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - RUN_MODE=login_required
+      - DATABASE_TYPE=sqlite
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+    volumes:
+      - ./data:/app/data
+      - ./workspace:/app/workspace
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # 前端服务
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: skills-hub-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  data:
+  workspace:
