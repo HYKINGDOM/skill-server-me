@@ -151,7 +151,7 @@
   - `programmatic` TR-12.2: 测试覆盖率达到 80% 以上
 - **Notes**: 使用 Vitest 执行测试
 
-## [/] Task 13: 提交代码到 Git 仓库
+## [x] Task 13: 提交代码到 Git 仓库
 - **Priority**: P0
 - **Depends On**: Task 11, Task 12
 - **Description**: 
