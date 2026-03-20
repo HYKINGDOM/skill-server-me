@@ -112,6 +112,7 @@ class Skill(SQLModel, table=True):
     favorites: list["Favorite"] = Relationship(back_populates="skill")
     timeline_events: list["TimelineEvent"] = Relationship(back_populates="skill")
     files: list["SkillFile"] = Relationship(back_populates="skill")
+    git_repo: Optional["GitRepo"] = Relationship(back_populates="skills")
 
 
 class SkillFile(SQLModel, table=True):

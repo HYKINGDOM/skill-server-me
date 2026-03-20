@@ -1,17 +1,29 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '@/utils/api'
 import type { GitRepo, PaginatedResponse } from '@/types'
-
-const router = useRouter()
 
 const loading = ref(false)
 const repos = ref<GitRepo[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
+
+// 同步状态映射
+const syncStatusMap = {
+  pending: 'info',
+  syncing: 'warning',
+  success: 'success',
+  failed: 'danger'
+}
+
+const syncStatusText = {
+  pending: '待同步',
+  syncing: '同步中',
+  success: '成功',
+  failed: '失败'
+}
 
 // 导入对话框
 const importDialogVisible = ref(false)
@@ -129,10 +141,10 @@ onMounted(() => {
               syncing: 'warning',
               success: 'success',
               failed: 'danger',
-            }[row.sync_status]"
+            }[row.sync_status as keyof typeof syncStatusMap]"
             size="small"
           >
-            {{ { pending: '待同步', syncing: '同步中', success: '成功', failed: '失败' }[row.sync_status] }}
+            {{ { pending: '待同步', syncing: '同步中', success: '成功', failed: '失败' }[row.sync_status as keyof typeof syncStatusText] }}
           </el-tag>
         </template>
       </el-table-column>

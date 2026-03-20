@@ -84,7 +84,7 @@ const handleUpload = async () => {
 }
 
 // 文件变化
-const handleFileChange = (file: any, fileList: any[]) => {
+const handleFileChange = (_file: any, fileList: any[]) => {
   uploadFileList.value = fileList.slice(-1) // 只保留最新文件
 }
 </script>

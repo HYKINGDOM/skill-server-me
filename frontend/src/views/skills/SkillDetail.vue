@@ -5,11 +5,9 @@ import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
 import { api, downloadFile } from '@/utils/api'
 import type { SkillDetail, SkillFile, Version, TimelineEvent } from '@/types'
-import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
 const router = useRouter()
-const authStore = useAuthStore()
 
 const loading = ref(false)
 const skillDetail = ref<SkillDetail | null>(null)
