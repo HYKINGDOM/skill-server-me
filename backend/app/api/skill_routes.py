@@ -5,7 +5,7 @@ Skill 路由
 """
 import os
 import tempfile
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Optional
 
 import aiofiles
@@ -202,7 +202,13 @@ async def get_skill(
     
     return SkillDetailResponse(
         skill=SkillResponse.model_validate(skill),
-        files=[SkillFileResponse.model_validate(f) for f in files],
+        files=[SkillFileResponse(
+            file_path=f.file_path,
+            file_name=f.file_name,
+            file_size=f.file_size,
+            file_type=f.file_type,
+            is_skill_md=f.is_skill_md,
+        ) for f in files],
         skill_md_content=skill_md_content,
     )
 
@@ -252,7 +258,7 @@ async def acquire_lock(
         skill_id=skill_id,
         is_locked=True,
         locked_by=current_user.id,
-        locked_at=datetime.utcnow(),
+        locked_at=datetime.now(UTC),
     )
 
 
@@ -288,7 +294,7 @@ async def takeover_lock(
         skill_id=skill_id,
         is_locked=True,
         locked_by=current_user.id,
-        locked_at=datetime.utcnow(),
+        locked_at=datetime.now(UTC),
     )
 
 

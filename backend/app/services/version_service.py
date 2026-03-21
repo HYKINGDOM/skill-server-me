@@ -4,7 +4,7 @@
 import hashlib
 import json
 import shutil
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Optional
 
@@ -127,7 +127,7 @@ class VersionService:
         )
         
         # 更新 Skill 更新时间
-        skill.updated_at = datetime.utcnow()
+        skill.updated_at = datetime.now(UTC)
         await self.session.commit()
         
         return skill

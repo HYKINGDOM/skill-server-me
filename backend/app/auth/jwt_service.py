@@ -6,14 +6,11 @@ JWT 令牌服务
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from app.core.config import get_settings
 from app.core.exceptions import InvalidTokenError, TokenExpiredError
-
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 class TokenData:
@@ -154,12 +151,19 @@ class PasswordService:
     @staticmethod
     def hash_password(password: str) -> str:
         """哈希密码"""
-        return pwd_context.hash(password)
+        # bcrypt限制密码长度为72字节，超过的部分会被截断
+        password_bytes = password[:72].encode('utf-8')
+        salt = bcrypt.gensalt()
+        hashed = bcrypt.hashpw(password_bytes, salt)
+        return hashed.decode('utf-8')
 
     @staticmethod
     def verify_password(plain_password: str, hashed_password: str) -> bool:
         """验证密码"""
-        return pwd_context.verify(plain_password, hashed_password)
+        # bcrypt限制密码长度为72字节，超过的部分会被截断
+        password_bytes = plain_password[:72].encode('utf-8')
+        hashed_bytes = hashed_password.encode('utf-8')
+        return bcrypt.checkpw(password_bytes, hashed_bytes)
 
 
 # 全局服务实例

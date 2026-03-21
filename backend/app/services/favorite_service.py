@@ -4,7 +4,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import SkillNotFoundError
@@ -23,7 +23,6 @@ class FavoriteService:
         user: User,
     ) -> Favorite:
         """添加收藏"""
-        # 验证 Skill 存在
         result = await self.session.execute(
             select(Skill).where(Skill.id == skill_id)
         )
@@ -32,18 +31,19 @@ class FavoriteService:
         if not skill:
             raise SkillNotFoundError(skill_id)
         
-        # 检查是否已收藏
         existing = await self._get_favorite(skill_id, user.id)
         if existing:
             return existing
         
-        # 创建收藏
         favorite = Favorite(
             user_id=user.id,
             skill_id=skill_id,
         )
         
         self.session.add(favorite)
+        
+        skill.favorite_count = (skill.favorite_count or 0) + 1
+        
         await self.session.commit()
         await self.session.refresh(favorite)
         
@@ -59,6 +59,14 @@ class FavoriteService:
         
         if favorite:
             await self.session.delete(favorite)
+            
+            result = await self.session.execute(
+                select(Skill).where(Skill.id == skill_id)
+            )
+            skill = result.scalar_one_or_none()
+            if skill:
+                skill.favorite_count = max(0, (skill.favorite_count or 0) - 1)
+            
             await self.session.commit()
             return True
         
@@ -80,21 +88,17 @@ class FavoriteService:
         page_size: int = 20,
     ) -> tuple[list[dict], int]:
         """列出用户收藏"""
-        # 查询收藏
         query = select(Favorite).where(Favorite.user_id == user.id)
         
-        # 计算总数
         count_result = await self.session.execute(query)
         total = len(count_result.scalars().all())
         
-        # 分页
         query = query.offset((page - 1) * page_size).limit(page_size)
         query = query.order_by(Favorite.created_at.desc())
         
         result = await self.session.execute(query)
         favorites = result.scalars().all()
         
-        # 获取 Skill 详情
         items = []
         for favorite in favorites:
             skill_result = await self.session.execute(
@@ -114,6 +118,28 @@ class FavoriteService:
                 })
         
         return items, total
+
+    async def get_favorite_count(self, skill_id: str) -> int:
+        """获取 Skill 的收藏数"""
+        result = await self.session.execute(
+            select(func.count(Favorite.id)).where(Favorite.skill_id == skill_id)
+        )
+        return result.scalar() or 0
+
+    async def sync_favorite_count(self, skill_id: str) -> int:
+        """同步 Skill 的收藏数（从数据库重新计算）"""
+        count = await self.get_favorite_count(skill_id)
+        
+        result = await self.session.execute(
+            select(Skill).where(Skill.id == skill_id)
+        )
+        skill = result.scalar_one_or_none()
+        
+        if skill:
+            skill.favorite_count = count
+            await self.session.commit()
+        
+        return count
 
     async def _get_favorite(
         self,

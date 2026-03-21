@@ -8,7 +8,7 @@ import json
 import os
 import shutil
 import zipfile
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Optional
 
@@ -266,7 +266,7 @@ summary: 请填写 Skill 摘要
                         await f.write(content)
                     changed_files.append(file_path)
             
-            skill.updated_at = datetime.utcnow()
+            skill.updated_at = datetime.now(UTC)
             await self.session.commit()
             await self.session.refresh(skill)
             
@@ -392,7 +392,7 @@ summary: 请填写 Skill 摘要
         )
         
         skill.locked_by = user.id
-        skill.locked_at = datetime.utcnow()
+        skill.locked_at = datetime.now(UTC)
         await self.session.commit()
         
         return True
@@ -621,7 +621,7 @@ summary: 请填写 Skill 摘要
         
         skill.is_locked = True
         skill.locked_by = user.id
-        skill.locked_at = datetime.utcnow()
+        skill.locked_at = datetime.now(UTC)
         await self.session.commit()
         
         return True

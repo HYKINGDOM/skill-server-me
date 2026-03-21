@@ -10,7 +10,7 @@ import os
 import shutil
 import socket
 import ipaddress
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
@@ -150,7 +150,7 @@ class GitSyncService:
             # 检查是否有更新
             if repo.last_sync_commit == latest_commit:
                 repo.sync_status = "success"
-                repo.last_sync_at = datetime.utcnow()
+                repo.last_sync_at = datetime.now(UTC)
                 await self.session.commit()
                 return {"status": "no_changes", "commit": latest_commit}
             
@@ -378,7 +378,7 @@ class GitSyncService:
         skill.title = metadata.get("title", skill.title)
         skill.summary = metadata.get("summary", skill.summary)
         skill.tags = json.dumps(metadata.get("tags", []), ensure_ascii=False)
-        skill.updated_at = datetime.utcnow()
+        skill.updated_at = datetime.now(UTC)
         
         await self.session.commit()
         await self.session.refresh(skill)

@@ -2,7 +2,7 @@
 通知服务
 """
 import json
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Optional
 
 from sqlalchemy import and_, select
@@ -104,7 +104,7 @@ class NotificationService:
         
         if notification:
             notification.is_read = True
-            notification.read_at = datetime.utcnow()
+            notification.read_at = datetime.now(UTC)
             await self.session.commit()
             return True
         
@@ -125,7 +125,7 @@ class NotificationService:
         count = 0
         for notification in notifications:
             notification.is_read = True
-            notification.read_at = datetime.utcnow()
+            notification.read_at = datetime.now(UTC)
             count += 1
         
         await self.session.commit()

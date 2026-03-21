@@ -3,7 +3,7 @@
 
 处理用户登录、注册、令牌刷新等
 """
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -165,7 +165,7 @@ async def login(
         )
     
     # 更新最后登录时间
-    user.last_login_at = datetime.utcnow()
+    user.last_login_at = datetime.now(UTC)
     await session.commit()
     
     # 生成令牌
@@ -259,7 +259,7 @@ async def change_password(
     current_user.hashed_password = password_service.hash_password(
         password_data.new_password
     )
-    current_user.updated_at = datetime.utcnow()
+    current_user.updated_at = datetime.now(UTC)
     
     await session.commit()
     
@@ -302,7 +302,7 @@ async def update_user_role(
         )
     
     user.system_role = role
-    user.updated_at = datetime.utcnow()
+    user.updated_at = datetime.now(UTC)
     
     await session.commit()
     

@@ -102,6 +102,12 @@ class Skill(SQLModel, table=True):
     # 状态
     is_active: bool = Field(default=True)
     
+    # 统计字段（用于搜索排序）
+    download_count: int = Field(default=0)
+    favorite_count: int = Field(default=0)
+    usage_count: int = Field(default=0)
+    is_official: bool = Field(default=False)
+    
     # 时间戳
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
