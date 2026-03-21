@@ -1,6 +1,10 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { 
+  setCurrentRouteKey, 
+  cancelRouteRequests
+} from '@/utils/api'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -81,13 +85,45 @@ const router = createRouter({
   routes,
 })
 
+// ==================== 路由守卫 ====================
+
+/**
+ * 生成路由标识
+ * 用于标识当前路由的请求
+ * @param path 路由路径
+ * @returns 路由标识
+ */
+function generateRouteKey(path: string): string {
+  // 使用路径作为路由标识，移除动态参数以避免重复
+  const basePath = path.split('/').slice(0, 3).join('/')
+  return `route_${basePath.replace(/\//g, '_')}`
+}
+
 // 路由守卫
 router.beforeEach(async (to, _from, next) => {
   const authStore = useAuthStore()
 
+  // ==================== 请求取消逻辑 ====================
+  
+  // 如果是从一个路由切换到另一个路由，取消前一个路由的请求
+  if (_from.path && _from.path !== to.path) {
+    const fromRouteKey = generateRouteKey(_from.path)
+    
+    // 取消前一个路由的所有未完成请求
+    cancelRouteRequests(fromRouteKey, `路由从 ${_from.path} 切换到 ${to.path}`)
+  }
+
+  // 设置当前路由标识
+  const currentRouteKey = generateRouteKey(to.path)
+  setCurrentRouteKey(currentRouteKey)
+
+  // ==================== 页面标题设置 ====================
+  
   // 设置页面标题
   document.title = to.meta.title ? `${to.meta.title} - Skills Hub` : 'Skills Hub'
 
+  // ==================== 认证检查 ====================
+  
   // 不需要认证的页面
   if (to.meta.requiresAuth === false) {
     next()
@@ -105,6 +141,8 @@ router.beforeEach(async (to, _from, next) => {
     return
   }
 
+  // ==================== 权限检查 ====================
+  
   // 检查管理员权限
   if (to.meta.requiresAdmin && !authStore.isAdmin) {
     next({ name: 'SkillList' })
@@ -112,6 +150,22 @@ router.beforeEach(async (to, _from, next) => {
   }
 
   next()
+})
+
+/**
+ * 路由后置守卫
+ * 用于清理和统计
+ */
+router.afterEach((_to, _from) => {
+  // 可以在这里添加页面访问统计等逻辑
+  // console.log(`路由切换完成: ${_from.path} -> ${to.path}`)
+})
+
+/**
+ * 路由错误处理
+ */
+router.onError((error) => {
+  console.error('路由错误:', error)
 })
 
 export default router

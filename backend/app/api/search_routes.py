@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user_optional
+from app.core.config import get_settings
 from app.db.database import get_db_session
 from app.db.models import User
 from app.services.search_service import (
@@ -67,7 +68,7 @@ class RebuildIndexResponse(BaseModel):
 async def search(
     q: str = Query(..., min_length=1, description="搜索关键词"),
     page: int = Query(1, ge=1, description="页码"),
-    page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+    page_size: int = Query(None, ge=1, description="每页数量"),
     mode: str = Query("hybrid", description="搜索模式: fulltext/vector/hybrid"),
     sort_by: str = Query("blend", description="排序方式: relevance/favorite_count/download_count/updated_at/blend"),
     source_type: Optional[str] = Query(None, description="来源类型过滤: private/git"),
@@ -101,6 +102,14 @@ async def search(
     final_score = 0.55 × relevance_score + 0.20 × favorite_score + 0.15 × download_score + 0.10 × freshness_score
     ```
     """
+    # 使用配置中的默认分页大小和最大分页大小
+    settings = get_settings()
+    if page_size is None:
+        page_size = settings.default_page_size
+    else:
+        # 限制最大分页大小
+        page_size = min(page_size, settings.max_page_size)
+    
     try:
         search_mode = SearchMode(mode)
     except ValueError:

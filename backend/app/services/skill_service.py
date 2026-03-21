@@ -5,6 +5,7 @@ Skill 管理服务
 """
 import hashlib
 import json
+import logging
 import os
 import shutil
 import zipfile
@@ -16,6 +17,9 @@ import aiofiles
 import frontmatter
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+# 配置日志记录器
+logger = logging.getLogger(__name__)
 
 from app.core.config import get_settings
 from app.core.exceptions import (
@@ -422,7 +426,8 @@ summary: 请填写 Skill 摘要
         import re
         if not name:
             return False
-        if len(name) > 100:
+        # 使用配置中的最大名称长度
+        if len(name) > self.settings.max_skill_name_length:
             return False
         # 只允许字母、数字、中划线、下划线
         return bool(re.match(r"^[a-zA-Z0-9_-]+$", name))
@@ -462,32 +467,202 @@ summary: 请填写 Skill 摘要
             return {}
 
     async def _safe_extract_zip(self, zip_path: Path, target_dir: Path) -> None:
-        """安全解压 ZIP 文件"""
+        """
+        安全解压 ZIP 文件
+        
+        实现多层安全防护机制：
+        1. 路径遍历防护（多层验证）
+        2. 文件类型限制
+        3. 文件大小限制
+        4. 解压文件数量限制
+        5. 解压总大小限制
+        6. 安全审计日志
+        """
+        # 安全配置常量
+        MAX_EXTRACTED_FILES = 1000  # 最大解压文件数量
+        MAX_TOTAL_SIZE_MB = 500     # 最大解压总大小（MB）
+        
+        # 安全审计日志：开始解压
+        logger.info(
+            f"开始解压 ZIP 文件 - 文件路径: {zip_path}, 目标目录: {target_dir}",
+            extra={
+                "event": "zip_extraction_start",
+                "zip_path": str(zip_path),
+                "target_dir": str(target_dir),
+            }
+        )
+        
         try:
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                for member in zip_ref.namelist():
+                # 获取所有文件信息
+                file_list = zip_ref.namelist()
+                total_files = len(file_list)
+                
+                # 检查文件数量限制
+                if total_files > MAX_EXTRACTED_FILES:
+                    error_msg = f"解压文件数量超限: {total_files} > {MAX_EXTRACTED_FILES}"
+                    logger.error(
+                        error_msg,
+                        extra={
+                            "event": "zip_extraction_file_count_exceeded",
+                            "file_count": total_files,
+                            "max_files": MAX_EXTRACTED_FILES,
+                        }
+                    )
+                    raise ZipExtractionError(error_msg)
+                
+                # 计算总大小
+                total_size = sum(info.file_size for info in zip_ref.infolist())
+                total_size_mb = total_size / (1024 * 1024)
+                
+                # 检查总大小限制
+                if total_size_mb > MAX_TOTAL_SIZE_MB:
+                    error_msg = f"解压总大小超限: {total_size_mb:.2f}MB > {MAX_TOTAL_SIZE_MB}MB"
+                    logger.error(
+                        error_msg,
+                        extra={
+                            "event": "zip_extraction_total_size_exceeded",
+                            "total_size_mb": total_size_mb,
+                            "max_size_mb": MAX_TOTAL_SIZE_MB,
+                        }
+                    )
+                    raise ZipExtractionError(error_msg)
+                
+                # 验证每个文件路径
+                for member in file_list:
+                    # 第一层：检查路径是否以 .. 开头
+                    if member.startswith(".."):
+                        error_msg = f"检测到路径穿越攻击（第一层）：路径以 .. 开头 - {member}"
+                        logger.error(
+                            error_msg,
+                            extra={
+                                "event": "zip_extraction_path_traversal_layer1",
+                                "malicious_path": member,
+                            }
+                        )
+                        raise ZipExtractionError(error_msg)
+                    
+                    # 第二层：检查路径是否为绝对路径
+                    if os.path.isabs(member):
+                        error_msg = f"检测到路径穿越攻击（第二层）：路径为绝对路径 - {member}"
+                        logger.error(
+                            error_msg,
+                            extra={
+                                "event": "zip_extraction_path_traversal_layer2",
+                                "malicious_path": member,
+                            }
+                        )
+                        raise ZipExtractionError(error_msg)
+                    
                     # 规范化路径
                     member_path = os.path.normpath(member)
                     
-                    # 检查路径穿越
-                    if member_path.startswith("..") or os.path.isabs(member_path):
-                        raise ZipExtractionError(f"检测到路径穿越攻击: {member}")
+                    # 第三层：规范化后检查是否包含 .. 序列
+                    if ".." in member_path.split(os.sep):
+                        error_msg = f"检测到路径穿越攻击（第三层）：路径包含 .. 序列 - {member}"
+                        logger.error(
+                            error_msg,
+                            extra={
+                                "event": "zip_extraction_path_traversal_layer3",
+                                "malicious_path": member,
+                                "normalized_path": member_path,
+                            }
+                        )
+                        raise ZipExtractionError(error_msg)
+                    
+                    # 第四层：构建完整路径并验证是否在目标目录内
+                    full_path = os.path.normpath(os.path.join(target_dir, member_path))
+                    if not full_path.startswith(os.path.normpath(target_dir)):
+                        error_msg = f"检测到路径穿越攻击（第四层）：路径逃逸目标目录 - {member}"
+                        logger.error(
+                            error_msg,
+                            extra={
+                                "event": "zip_extraction_path_traversal_layer4",
+                                "malicious_path": member,
+                                "normalized_path": member_path,
+                                "full_path": full_path,
+                                "target_dir": str(target_dir),
+                            }
+                        )
+                        raise ZipExtractionError(error_msg)
                     
                     # 检查文件类型
                     ext = os.path.splitext(member_path)[1].lower()
                     if ext in FORBIDDEN_EXTENSIONS:
-                        raise ZipExtractionError(f"禁止的文件类型: {member}")
+                        error_msg = f"禁止的文件类型: {member}"
+                        logger.error(
+                            error_msg,
+                            extra={
+                                "event": "zip_extraction_forbidden_extension",
+                                "malicious_path": member,
+                                "extension": ext,
+                            }
+                        )
+                        raise ZipExtractionError(error_msg)
                     
-                    # 检查文件大小
+                    # 检查单个文件大小
                     info = zip_ref.getinfo(member)
                     if info.file_size > self.settings.max_file_size_mb * 1024 * 1024:
-                        raise ZipExtractionError(f"文件大小超限: {member}")
+                        error_msg = f"文件大小超限: {member} ({info.file_size / (1024*1024):.2f}MB > {self.settings.max_file_size_mb}MB)"
+                        logger.error(
+                            error_msg,
+                            extra={
+                                "event": "zip_extraction_file_size_exceeded",
+                                "file_path": member,
+                                "file_size_mb": info.file_size / (1024 * 1024),
+                                "max_size_mb": self.settings.max_file_size_mb,
+                            }
+                        )
+                        raise ZipExtractionError(error_msg)
+                
+                # 安全审计日志：验证通过，开始解压
+                logger.info(
+                    f"ZIP 文件验证通过，开始解压 - 文件数量: {total_files}, 总大小: {total_size_mb:.2f}MB",
+                    extra={
+                        "event": "zip_extraction_validation_passed",
+                        "file_count": total_files,
+                        "total_size_mb": total_size_mb,
+                    }
+                )
                 
                 # 安全解压
                 zip_ref.extractall(target_dir)
                 
+                # 安全审计日志：解压成功
+                logger.info(
+                    f"ZIP 文件解压成功 - 文件路径: {zip_path}",
+                    extra={
+                        "event": "zip_extraction_success",
+                        "zip_path": str(zip_path),
+                        "target_dir": str(target_dir),
+                        "file_count": total_files,
+                        "total_size_mb": total_size_mb,
+                    }
+                )
+                
         except zipfile.BadZipFile as e:
-            raise ZipExtractionError(f"无效的 ZIP 文件: {str(e)}")
+            error_msg = f"无效的 ZIP 文件: {str(e)}"
+            logger.error(
+                error_msg,
+                extra={
+                    "event": "zip_extraction_bad_zip",
+                    "zip_path": str(zip_path),
+                    "error": str(e),
+                }
+            )
+            raise ZipExtractionError(error_msg)
+        except Exception as e:
+            error_msg = f"解压过程中发生错误: {str(e)}"
+            logger.error(
+                error_msg,
+                extra={
+                    "event": "zip_extraction_error",
+                    "zip_path": str(zip_path),
+                    "error": str(e),
+                },
+                exc_info=True
+            )
+            raise ZipExtractionError(error_msg)
 
     async def _create_version(
         self,

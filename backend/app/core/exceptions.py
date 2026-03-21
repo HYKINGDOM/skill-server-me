@@ -228,3 +228,12 @@ class ConfigurationError(SkillHubException):
 
     def __init__(self, message: str, details: Optional[dict] = None):
         super().__init__(message, "CONFIG_ERROR", details)
+
+
+# ==================== 加密异常 ====================
+
+class EncryptionError(SkillHubException):
+    """加密异常"""
+
+    def __init__(self, message: str, details: Optional[dict] = None):
+        super().__init__(message, "ENCRYPTION_ERROR", details)

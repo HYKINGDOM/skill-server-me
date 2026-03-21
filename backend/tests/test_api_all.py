@@ -13,6 +13,9 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from app.core.utils import mask_token
 
 # 测试配置
 BASE_URL = "http://localhost:8000"
@@ -129,7 +132,8 @@ class APITester:
                 data = response.json()
                 self.token = data.get("access_token")
                 self.refresh_token_value = data.get("refresh_token")
-                log_test("用户登录", self.token is not None, f"Token: {self.token[:20]}...")
+                # 对 token 进行脱敏处理后再输出
+                log_test("用户登录", self.token is not None, f"Token: {mask_token(self.token) if self.token else 'None'}...")
             else:
                 log_test("用户登录", False, f"状态码: {response.status_code}, {response.text}")
         except Exception as e:

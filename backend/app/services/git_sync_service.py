@@ -20,11 +20,13 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.encryption import get_encryption_service
 from app.core.exceptions import (
     GitOperationError,
     GitRepoNotFoundError,
     GitSyncError,
     SSRFError,
+    EncryptionError,
 )
 from app.db.models import (
     GitRepo,
@@ -41,13 +43,42 @@ from app.services.skill_service import SkillService
 
 
 class GitSyncService:
-    """Git 同步服务"""
+    """
+    Git 同步服务
+    
+    事务边界管理说明：
+    ====================
+    本服务采用统一的事务管理策略，确保数据一致性：
+    
+    1. 主事务边界（sync_repo 方法）：
+       - 所有同步相关的数据库操作都在单个事务中执行
+       - 包括：状态更新、Skill 创建/更新、文件扫描、版本创建
+       - 任何步骤失败都会回滚所有更改
+       - 失败状态更新在独立的补救事务中执行
+    
+    2. 辅助方法事务策略：
+       - _create_git_skill: 不提交事务，使用 flush() 获取 ID
+       - _update_git_skill: 不提交事务，使用 flush() 刷新更改
+       - _scan_skill_files: 不提交事务，由调用方统一管理
+       - _create_version: 不提交事务，使用 flush() 获取 ID
+    
+    3. 事务一致性保证：
+       - 使用 session.flush() 在不提交的情况下获取自增 ID
+       - 使用 session.rollback() 在异常时回滚所有更改
+       - 失败状态更新使用独立事务，避免影响主事务回滚
+    
+    4. 注意事项：
+       - 不要在辅助方法中调用 commit()
+       - 需要获取 ID 时使用 flush() 而非 commit()
+       - 异常处理中先 rollback() 再更新失败状态
+    """
 
     def __init__(self, session: AsyncSession):
         self.session = session
         self.settings = get_settings()
         self.permission_service = PermissionService(session)
         self.skill_service = SkillService(session)
+        self.encryption_service = get_encryption_service()
 
     async def import_repo(
         self,
@@ -58,7 +89,24 @@ class GitSyncService:
         auth_type: Optional[str] = None,
         auth_secret_ref: Optional[str] = None,
     ) -> GitRepo:
-        """导入 Git 仓库"""
+        """
+        导入 Git 仓库
+        
+        Args:
+            name: 仓库名称
+            url: Git 仓库 URL
+            user: 当前用户
+            branch: 分支名称
+            auth_type: 认证类型（如 'token', 'ssh_key'）
+            auth_secret_ref: 认证密钥引用（将被加密存储）
+            
+        Returns:
+            GitRepo: 创建的仓库对象
+            
+        Raises:
+            GitOperationError: 仓库已存在或操作失败
+            EncryptionError: 加密失败
+        """
         # 验证 URL 安全性
         await self._validate_git_url(url)
         
@@ -68,6 +116,17 @@ class GitSyncService:
         )
         if result.scalar_one_or_none():
             raise GitOperationError("import", f"仓库名称已存在: {name}")
+        
+        # 加密认证信息（如果提供）
+        encrypted_auth_secret = None
+        if auth_secret_ref:
+            try:
+                encrypted_auth_secret = self.encryption_service.encrypt(auth_secret_ref)
+            except EncryptionError as e:
+                raise GitOperationError(
+                    "import",
+                    f"认证信息加密失败: {str(e)}"
+                )
         
         # 创建镜像目录
         mirror_path = self.settings.mirrors_path / name
@@ -79,7 +138,7 @@ class GitSyncService:
             url=url,
             branch=branch,
             auth_type=auth_type,
-            auth_secret_ref=auth_secret_ref,
+            auth_secret_ref=encrypted_auth_secret,  # 存储加密后的认证信息
             mirror_path=str(mirror_path),
             sync_status="pending",
             created_by=user.id,
@@ -110,7 +169,15 @@ class GitSyncService:
         repo_id: str,
         user: Optional[User] = None,
     ) -> dict:
-        """同步 Git 仓库"""
+        """
+        同步 Git 仓库
+        
+        事务边界说明：
+        - 整个同步过程在一个事务中执行
+        - 包括：状态更新、Skill 扫描、文件更新、版本创建
+        - 任何步骤失败都会回滚所有数据库更改
+        - 失败状态更新在独立事务中执行
+        """
         result = await self.session.execute(
             select(GitRepo).where(GitRepo.id == repo_id)
         )
@@ -119,19 +186,30 @@ class GitSyncService:
         if not repo:
             raise GitRepoNotFoundError(repo_id)
         
-        # 更新同步状态
+        # 更新同步状态为 syncing（在事务内，不立即提交）
         repo.sync_status = "syncing"
         repo.sync_error = None
-        await self.session.commit()
         
         try:
             mirror_path = Path(repo.mirror_path)
             
-            # 克隆或拉取
+            # 解密认证信息（如果存在）
+            auth_secret = None
+            if repo.auth_secret_ref:
+                try:
+                    auth_secret = self.encryption_service.decrypt(repo.auth_secret_ref)
+                except EncryptionError as e:
+                    raise GitSyncError(
+                        repo.url,
+                        f"认证信息解密失败: {str(e)}"
+                    )
+            
+            # 克隆或拉取（使用认证信息）
             if not (mirror_path / ".git").exists():
                 # 首次克隆
+                clone_url = self._build_authenticated_url(repo.url, auth_secret, repo.auth_type)
                 git.Repo.clone_from(
-                    repo.url,
+                    clone_url,
                     str(mirror_path),
                     branch=repo.branch,
                     depth=1,
@@ -140,6 +218,12 @@ class GitSyncService:
                 # 拉取更新
                 git_repo = git.Repo(str(mirror_path))
                 origin = git_repo.remotes.origin
+                
+                # 如果有认证信息，更新远程 URL
+                if auth_secret:
+                    authenticated_url = self._build_authenticated_url(repo.url, auth_secret, repo.auth_type)
+                    origin.set_url(authenticated_url)
+                
                 origin.fetch()
                 git_repo.git.reset("--hard", f"origin/{repo.branch}")
             
@@ -149,18 +233,21 @@ class GitSyncService:
             
             # 检查是否有更新
             if repo.last_sync_commit == latest_commit:
+                # 无更新，设置成功状态并提交
                 repo.sync_status = "success"
                 repo.last_sync_at = datetime.now(UTC)
                 await self.session.commit()
                 return {"status": "no_changes", "commit": latest_commit}
             
-            # 扫描 Skill 目录
+            # 扫描 Skill 目录（所有数据库操作在同一事务中）
             skills_created, skills_updated = await self._scan_skills(repo, user)
             
-            # 更新同步状态
+            # 更新同步状态为成功
             repo.last_sync_commit = latest_commit
-            repo.last_sync_at = datetime.utcnow()
+            repo.last_sync_at = datetime.now(UTC)
             repo.sync_status = "success"
+            
+            # 统一提交所有更改
             await self.session.commit()
             
             return {
@@ -171,9 +258,14 @@ class GitSyncService:
             }
             
         except Exception as e:
+            # 回滚当前事务中的所有更改
+            await self.session.rollback()
+            
+            # 在新事务中更新失败状态
             repo.sync_status = "failed"
             repo.sync_error = str(e)
             await self.session.commit()
+            
             raise GitSyncError(repo.url, str(e))
 
     async def delete_repo(
@@ -271,6 +363,63 @@ class GitSyncService:
 
     # ==================== 私有方法 ====================
 
+    def _build_authenticated_url(
+        self,
+        url: str,
+        auth_secret: Optional[str],
+        auth_type: Optional[str],
+    ) -> str:
+        """
+        构建带认证信息的 Git URL
+        
+        Args:
+            url: 原始 Git URL
+            auth_secret: 认证密钥（token 或密码）
+            auth_type: 认证类型（'token', 'password', 'ssh_key'）
+            
+        Returns:
+            str: 带认证信息的 URL
+            
+        Example:
+            >>> url = _build_authenticated_url(
+            ...     "https://github.com/user/repo.git",
+            ...     "my-token",
+            ...     "token"
+            ... )
+            >>> # 返回: "https://my-token@github.com/user/repo.git"
+        """
+        if not auth_secret or not auth_type:
+            return url
+        
+        parsed = urlparse(url)
+        
+        # 根据认证类型构建 URL
+        if auth_type == "token" or auth_type == "password":
+            # HTTPS 认证：在 URL 中添加用户名和密码/token
+            # 格式：https://token@github.com/user/repo.git
+            # 或：https://username:password@github.com/user/repo.git
+            if parsed.username:
+                # 如果 URL 中已有用户名，替换密码部分
+                auth_url = f"{parsed.scheme}://{parsed.username}:{auth_secret}@{parsed.hostname}"
+            else:
+                # 如果没有用户名，使用 token 作为用户名（GitHub 风格）
+                auth_url = f"{parsed.scheme}://{auth_secret}@{parsed.hostname}"
+            
+            # 添加端口（如果有）
+            if parsed.port:
+                auth_url += f":{parsed.port}"
+            
+            # 添加路径
+            auth_url += parsed.path
+            
+            return auth_url
+        
+        # SSH 密钥认证不需要修改 URL，通过 SSH 配置文件处理
+        elif auth_type == "ssh_key":
+            return url
+        
+        return url
+
     async def _validate_git_url(self, url: str) -> bool:
         """验证 Git URL 安全性"""
         parsed = urlparse(url)
@@ -304,7 +453,13 @@ class GitSyncService:
         repo: GitRepo,
         user: Optional[User] = None,
     ) -> tuple[int, int]:
-        """扫描仓库中的 Skill 目录"""
+        """
+        扫描仓库中的 Skill 目录
+        
+        事务边界说明：
+        - 此方法不执行 commit，由调用方统一管理事务
+        - 所有数据库操作在同一事务中执行
+        """
         mirror_path = Path(repo.mirror_path)
         skills_created = 0
         skills_updated = 0
@@ -338,7 +493,13 @@ class GitSyncService:
         skill_name: str,
         user: Optional[User] = None,
     ) -> Skill:
-        """创建 Git 来源的 Skill"""
+        """
+        创建 Git 来源的 Skill
+        
+        事务边界说明：
+        - 此方法不执行 commit，由调用方统一管理事务
+        - 所有数据库操作在同一事务中执行
+        """
         # 解析 SKILL.md
         metadata = await self._parse_skill_md(skill_dir / "SKILL.md")
         
@@ -354,7 +515,8 @@ class GitSyncService:
         )
         
         self.session.add(skill)
-        await self.session.commit()
+        # 刷新以获取 ID，但不提交事务
+        await self.session.flush()
         await self.session.refresh(skill)
         
         # 扫描文件
@@ -371,7 +533,13 @@ class GitSyncService:
         skill_dir: Path,
         user: Optional[User] = None,
     ) -> Skill:
-        """更新 Git 来源的 Skill"""
+        """
+        更新 Git 来源的 Skill
+        
+        事务边界说明：
+        - 此方法不执行 commit，由调用方统一管理事务
+        - 所有数据库操作在同一事务中执行
+        """
         # 解析 SKILL.md
         metadata = await self._parse_skill_md(skill_dir / "SKILL.md")
         
@@ -380,7 +548,8 @@ class GitSyncService:
         skill.tags = json.dumps(metadata.get("tags", []), ensure_ascii=False)
         skill.updated_at = datetime.now(UTC)
         
-        await self.session.commit()
+        # 刷新更改，但不提交事务
+        await self.session.flush()
         await self.session.refresh(skill)
         
         # 扫描文件
@@ -411,7 +580,13 @@ class GitSyncService:
             return {}
 
     async def _scan_skill_files(self, skill: Skill, skill_dir: Path) -> None:
-        """扫描 Skill 文件"""
+        """
+        扫描 Skill 文件
+        
+        事务边界说明：
+        - 此方法不执行 commit，由调用方统一管理事务
+        - 所有数据库操作在同一事务中执行
+        """
         # 删除旧记录
         result = await self.session.execute(
             select(SkillFile).where(SkillFile.skill_id == skill.id)
@@ -445,7 +620,7 @@ class GitSyncService:
                 
                 self.session.add(skill_file)
         
-        await self.session.commit()
+        # 不提交事务，由调用方统一管理
 
     def _get_mime_type(self, ext: str) -> str:
         """获取 MIME 类型"""
@@ -472,7 +647,13 @@ class GitSyncService:
         user: Optional[User],
         change_summary: str,
     ) -> SkillVersion:
-        """创建版本"""
+        """
+        创建版本
+        
+        事务边界说明：
+        - 此方法不执行 commit，由调用方统一管理事务
+        - 所有数据库操作在同一事务中执行
+        """
         result = await self.session.execute(
             select(SkillVersion)
             .where(SkillVersion.skill_id == skill.id)
@@ -495,7 +676,8 @@ class GitSyncService:
         )
         
         self.session.add(version)
-        await self.session.commit()
+        # 刷新以获取 ID，但不提交事务
+        await self.session.flush()
         
         return version
 

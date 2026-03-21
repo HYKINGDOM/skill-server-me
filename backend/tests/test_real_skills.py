@@ -13,6 +13,9 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from app.core.utils import mask_token
 
 # 真实 skill 目录
 REAL_SKILLS_DIR = Path("/Users/bingbing/Documents/project/skills/skills")
@@ -128,7 +131,8 @@ class RealSkillTester:
                 data = response.json()
                 self.token = data.get("access_token")
                 self.user_id = data.get("id")
-                log_test("用户登录", self.token is not None, f"Token: {self.token[:20] if self.token else 'None'}...")
+                # 对 token 进行脱敏处理后再输出
+                log_test("用户登录", self.token is not None, f"Token: {mask_token(self.token) if self.token else 'None'}...")
                 return True
             else:
                 log_test("用户登录", False, f"状态码: {response.status_code}")

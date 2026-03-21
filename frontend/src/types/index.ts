@@ -119,3 +119,80 @@ export interface PaginatedResponse<T> {
   page: number
   page_size: number
 }
+
+// ============================================
+// API 响应类型定义
+// ============================================
+
+// 通用 API 响应类型
+export interface ApiResponse<T> {
+  success: boolean
+  data?: T
+  message?: string
+}
+
+// API 错误响应类型
+export interface ApiErrorResponse {
+  success: false
+  error: string
+  message?: string
+  details?: Record<string, unknown>
+}
+
+// 登录响应类型
+export interface LoginResponse {
+  success: boolean
+  message: string
+  user?: User
+  token?: string
+}
+
+// 用户更新响应类型
+export interface UserUpdateResponse {
+  success: boolean
+  message: string
+  user?: User
+}
+
+// 操作结果响应类型（通用）
+export interface OperationResponse {
+  success: boolean
+  message: string
+}
+
+// 锁操作响应类型
+export interface LockResponse {
+  success: boolean
+  message: string
+  locked_by?: string
+  locked_at?: string
+}
+
+// 解锁操作响应类型
+export interface UnlockResponse {
+  success: boolean
+  message: string
+}
+
+// 删除操作响应类型
+export interface DeleteResponse {
+  success: boolean
+  message: string
+  deleted_id?: string
+}
+
+// 创建操作响应类型
+export interface CreateResponse<T> {
+  success: boolean
+  message: string
+  data?: T
+}
+
+// 同步操作响应类型
+export interface SyncResponse {
+  success: boolean
+  message: string
+  synced_count?: number
+  error_count?: number
+  errors?: string[]
+}
