@@ -9,11 +9,15 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 复制依赖文件
-COPY pyproject.toml .
+# 配置 pip 使用国内镜像源
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
+    pip config set install.trusted-host pypi.tuna.tsinghua.edu.cn
 
-# 安装 Python 依赖
-RUN pip install --no-cache-dir -e .
+# 复制依赖文件
+COPY pyproject.toml README.md ./
+
+# 安装 Python 依赖（添加重试机制）
+RUN pip install --no-cache-dir -e . || pip install --no-cache-dir -e . || pip install --no-cache-dir -e .
 
 # 复制应用代码
 COPY app/ ./app/

@@ -13,6 +13,8 @@ services:
       - RUN_MODE=login_required
       - DATABASE_TYPE=sqlite
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-foU8oJHZ7T3c-fPqVZwl7VuPW3qkcQusxPH8El7JRHY=}
+      - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:-admin123}
     volumes:
       - ./data:/app/data
       - ./workspace:/app/workspace

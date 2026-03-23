@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import Search from '@/views/Search.vue'
@@ -28,7 +28,7 @@ describe('Search Component', () => {
     mockRoute = {
       query: {}
     }
-    ;(useRoute as vi.Mock).mockReturnValue(mockRoute)
+    ;(useRoute as Mock).mockReturnValue(mockRoute)
     // 模拟 window.open
     delete (window as any).open;
     (window as any).open = vi.fn();

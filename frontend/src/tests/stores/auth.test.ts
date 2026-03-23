@@ -49,9 +49,12 @@ describe('Auth Store', () => {
 
       const mockUserInfo = {
         data: {
-          id: 1,
+          id: '1',
           username: 'test-user',
-          system_role: 'user'
+          email: 'test@example.com',
+          system_role: 'user',
+          is_active: true,
+          created_at: '2023-01-01T00:00:00Z'
         }
       }
 
@@ -87,9 +90,12 @@ describe('Auth Store', () => {
       authStore.token = 'test-token'
       authStore.refreshToken = 'test-refresh-token'
       authStore.user = {
-        id: 1,
+        id: '1',
         username: 'test-user',
-        system_role: 'user'
+        email: 'test@example.com',
+        system_role: 'user',
+        is_active: true,
+        created_at: '2023-01-01T00:00:00Z'
       }
 
       // 执行登出
@@ -108,18 +114,24 @@ describe('Auth Store', () => {
   describe('isAdmin', () => {
     it('should return true when user is admin', () => {
       authStore.user = {
-        id: 1,
+        id: '1',
         username: 'admin',
-        system_role: 'admin'
+        email: 'admin@example.com',
+        system_role: 'admin',
+        is_active: true,
+        created_at: '2023-01-01T00:00:00Z'
       }
       expect(authStore.isAdmin).toBe(true)
     })
 
     it('should return false when user is not admin', () => {
       authStore.user = {
-        id: 1,
+        id: '1',
         username: 'user',
-        system_role: 'user'
+        email: 'user@example.com',
+        system_role: 'user',
+        is_active: true,
+        created_at: '2023-01-01T00:00:00Z'
       }
       expect(authStore.isAdmin).toBe(false)
     })

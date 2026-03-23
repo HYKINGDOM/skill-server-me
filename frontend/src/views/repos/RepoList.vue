@@ -11,7 +11,7 @@ const page = ref(1)
 const pageSize = ref(20)
 
 // 同步状态映射
-const syncStatusMap = {
+const syncStatusMap: Record<string, 'success' | 'primary' | 'warning' | 'info' | 'danger'> = {
   pending: 'info',
   syncing: 'warning',
   success: 'success',
@@ -136,15 +136,10 @@ onMounted(() => {
       <el-table-column prop="sync_status" label="同步状态" width="100">
         <template #default="{ row }">
           <el-tag
-            :type="{
-              pending: 'info',
-              syncing: 'warning',
-              success: 'success',
-              failed: 'danger',
-            }[row.sync_status as keyof typeof syncStatusMap]"
+            :type="syncStatusMap[row.sync_status]"
             size="small"
           >
-            {{ { pending: '待同步', syncing: '同步中', success: '成功', failed: '失败' }[row.sync_status as keyof typeof syncStatusText] }}
+            {{ syncStatusText[row.sync_status as keyof typeof syncStatusText] }}
           </el-tag>
         </template>
       </el-table-column>

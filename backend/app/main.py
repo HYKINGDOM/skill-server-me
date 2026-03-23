@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import get_settings
 from app.core.exceptions import SkillHubException
 from app.db.database import db_manager
+from app.db.init_db import init_admin_user, init_system_configs
 
 # 导入路由
 from app.api.auth_routes import router as auth_router
@@ -34,6 +35,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # 启动时初始化
     settings.ensure_directories()
     await db_manager.init_db()
+    
+    # 初始化管理员用户和系统配置
+    async with db_manager.get_session() as session:
+        await init_admin_user(session)
+        await init_system_configs(session)
     
     print(f"🚀 {settings.app_name} v{settings.app_version} 启动中...")
     print(f"📝 运行模式: {settings.run_mode.value}")

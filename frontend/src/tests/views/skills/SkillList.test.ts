@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { api } from '@/utils/api'
 import { useRouter } from 'vue-router'
@@ -26,7 +26,7 @@ describe('SkillList Component Logic', () => {
     mockRouter = {
       push: vi.fn()
     }
-    ;(useRouter as vi.Mock).mockReturnValue(mockRouter)
+    ;(useRouter as Mock).mockReturnValue(mockRouter)
     // 创建 Pinia 实例并激活
     const pinia = createPinia()
     setActivePinia(pinia)
